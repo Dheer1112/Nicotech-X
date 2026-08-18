@@ -1,5 +1,22 @@
 <!DOCTYPE html>
 <html lang="en">
+<!--
+  NX-77 — Orbital Command Center
+  ------------------------------------------------------------
+  Interactive Three.js orbital safety / collision-avoidance UI.
+
+  This file is intentionally kept self-contained:
+  - HTML: interface structure and mission panels
+  - CSS: HUD styling, responsive layout, animations
+  - JavaScript: Three.js scene, interaction, spectate mode,
+    threat selection, maneuver simulation, camera controls,
+    and telemetry
+
+  NOTE:
+  The orbital values and collision probabilities shown here
+  are simulation/demo values unless a live data source is
+  explicitly connected.
+-->
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,6 +26,10 @@
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Mono:wght@400;700&display=swap');
 
+/* =========================================================
+   DESIGN TOKENS / COLOR SYSTEM
+   Centralized variables keep the HUD visual language consistent.
+   ========================================================= */
 :root{
   --bg:#010409;
   --panel:rgba(5,12,20,.78);
@@ -26,6 +47,11 @@
   --mono:"Space Mono",monospace;
 }
 
+/* =========================================================
+   GLOBAL RESET + BASE PAGE BEHAVIOR
+   The canvas fills the viewport and normal page scrolling is
+   disabled because the application behaves like a full-screen HUD.
+   ========================================================= */
 *{box-sizing:border-box}
 html,body{width:100%;height:100%;margin:0;overflow:hidden;background:var(--bg)}
 body{font-family:Inter,system-ui,sans-serif;color:var(--text);cursor:none}
@@ -33,11 +59,20 @@ button,a{font:inherit}
 button{cursor:none}
 a{text-decoration:none;color:inherit}
 
+/* =========================================================
+   THREE.JS RENDERING CANVAS
+   This canvas sits behind the entire interface.
+   ========================================================= */
 #space{
   position:fixed;inset:0;width:100%;height:100%;z-index:0;
   display:block;
 }
 
+/* =========================================================
+   CINEMATIC OVERLAYS
+   Noise, vignette, and scanlines create the mission-control look.
+   They do not receive pointer events.
+   ========================================================= */
 .noise{
   position:fixed;inset:0;z-index:20;pointer-events:none;opacity:.035;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.7'/%3E%3C/svg%3E");
@@ -51,6 +86,11 @@ a{text-decoration:none;color:inherit}
   background:repeating-linear-gradient(to bottom,transparent 0 3px,rgba(150,220,255,.08) 4px);
 }
 
+/* =========================================================
+   CUSTOM CURSOR
+   The cursor and expanding ring provide visual feedback when
+   hovering over interactive controls.
+   ========================================================= */
 .cursor,.cursor-ring{
   position:fixed;z-index:100;pointer-events:none;border-radius:50%;
   transform:translate(-50%,-50%);
@@ -68,6 +108,10 @@ a{text-decoration:none;color:inherit}
   background:rgba(98,221,255,.04);
 }
 
+/* =========================================================
+   BOOT / INITIALIZATION SCREEN
+   Displayed before the main command center becomes available.
+   ========================================================= */
 .boot{
   position:fixed;inset:0;z-index:200;background:#010409;
   display:grid;place-items:center;transition:opacity .8s,visibility .8s;
@@ -81,6 +125,11 @@ a{text-decoration:none;color:inherit}
 .boot-track b{display:block;height:100%;width:0;background:var(--cyan);box-shadow:0 0 16px var(--cyan)}
 .boot-meta{display:flex;justify-content:space-between;margin-top:9px;color:#5d7888;font:9px var(--mono);letter-spacing:.12em}
 
+/* =========================================================
+   TOP HUD BAR
+   Mission identity and live system state remain visible above
+   the Three.js scene.
+   ========================================================= */
 .topbar{
   position:fixed;top:0;left:0;right:0;z-index:50;height:70px;
   display:flex;align-items:center;justify-content:space-between;padding:0 28px;
@@ -103,6 +152,11 @@ a{text-decoration:none;color:inherit}
   background:var(--green);box-shadow:0 0 12px var(--green);margin-right:7px;
 }
 
+/* =========================================================
+   SIDE TELEMETRY
+   Static ground-station and telemetry readouts surrounding the
+   central orbital visualization.
+   ========================================================= */
 .side-data{
   position:fixed;z-index:30;top:94px;width:145px;
   display:grid;gap:7px;font:8px var(--mono);letter-spacing:.11em;color:#5e7887;
@@ -114,6 +168,10 @@ a{text-decoration:none;color:inherit}
 .side-data b{color:var(--cyan);font-weight:700}
 .green{color:var(--green)!important}
 
+/* =========================================================
+   HUD CORNER MARKERS
+   Decorative targeting brackets that frame the viewport.
+   ========================================================= */
 .corner{
   position:fixed;z-index:30;width:36px;height:36px;pointer-events:none;opacity:.6
 }
@@ -122,6 +180,11 @@ a{text-decoration:none;color:inherit}
 .corner.bl{left:20px;bottom:20px;border-left:1px solid var(--cyan);border-bottom:1px solid var(--cyan)}
 .corner.br{right:20px;bottom:20px;border-right:1px solid var(--cyan);border-bottom:1px solid var(--cyan)}
 
+/* =========================================================
+   LANDING / MISSION INTRO
+   The initial screen contains the project title and the button
+   that transitions into the interactive command center.
+   ========================================================= */
 .launch{
   position:fixed;z-index:45;left:50%;top:50%;transform:translate(-50%,-50%);
   width:min(980px,86vw);text-align:center;
@@ -158,6 +221,10 @@ a{text-decoration:none;color:inherit}
 .launch-button:hover{box-shadow:0 0 35px rgba(98,221,255,.15);border-color:var(--cyan);background:rgba(98,221,255,.11)}
 .launch-note{margin-top:14px;color:#506b79;font:8px var(--mono);letter-spacing:.16em}
 
+/* =========================================================
+   COMMAND CENTER CONTAINER
+   Hidden initially, then activated after ENTER CONTROL PANEL.
+   ========================================================= */
 .command{
   position:fixed;inset:0;z-index:40;pointer-events:none;opacity:0;visibility:hidden;
   transition:opacity .7s,visibility .7s;
@@ -165,6 +232,11 @@ a{text-decoration:none;color:inherit}
 .command.active{opacity:1;visibility:visible}
 .command > *{pointer-events:auto}
 
+/* =========================================================
+   COMMAND PANELS
+   Left = mission/navigation information.
+   Right = threat response and maneuver controls.
+   ========================================================= */
 .left-panel,.right-panel{
   position:absolute;top:92px;bottom:72px;width:290px;
   background:linear-gradient(135deg,rgba(3,10,17,.78),rgba(5,13,22,.52));
@@ -186,6 +258,10 @@ a{text-decoration:none;color:inherit}
 .panel-head b{color:var(--cyan)}
 .panel-body{padding:16px}
 
+/* =========================================================
+   LEFT PANEL TABS + MODULES
+   Tabs switch between overview, threats, satellite, and system.
+   ========================================================= */
 .nav-tabs{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:14px}
 .tab{
   border:1px solid var(--line);background:rgba(98,221,255,.025);
@@ -197,6 +273,10 @@ a{text-decoration:none;color:inherit}
 .module.active{display:block}
 @keyframes moduleIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 
+/* =========================================================
+   ASSET / INFORMATION CARDS
+   Shared visual components for mission and satellite details.
+   ========================================================= */
 .asset-card{
   border:1px solid var(--line);padding:15px;background:rgba(98,221,255,.025);
 }
@@ -212,6 +292,10 @@ a{text-decoration:none;color:inherit}
 .detail{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px dashed rgba(126,214,255,.12);font:9px var(--mono)}
 .detail span:first-child{color:#5f7786}.detail span:last-child{color:#dff6ff}
 
+/* =========================================================
+   THREAT LIST
+   Each node represents a selectable debris conjunction.
+   ========================================================= */
 .node-list{display:grid;gap:7px;margin-top:12px}
 .node{
   width:100%;text-align:left;border:1px solid var(--line);background:rgba(5,14,22,.72);
@@ -222,6 +306,10 @@ a{text-decoration:none;color:inherit}
 .node .n-top b{color:var(--red)}
 .node p{margin:7px 0 0;color:#607b89;font:8px/1.5 var(--mono)}
 
+/* =========================================================
+   COLLISION-RISK DISPLAY
+   Shows the currently selected threat's estimated risk state.
+   ========================================================= */
 .risk-card{
   border:1px solid rgba(255,82,106,.22);padding:17px;
   background:radial-gradient(circle at 50% 20%,rgba(255,82,106,.08),transparent 65%);
@@ -238,6 +326,10 @@ a{text-decoration:none;color:inherit}
 }
 .small-btn:hover{border-color:var(--cyan);color:var(--cyan2)}
 
+/* =========================================================
+   THREAT METRICS
+   Miss distance, time to approach, relative velocity, and impact.
+   ========================================================= */
 .right-risk{
   border:1px solid rgba(98,221,255,.18);padding:14px;margin-bottom:9px;
   background:rgba(98,221,255,.025)
@@ -248,6 +340,10 @@ a{text-decoration:none;color:inherit}
 .right-risk .row b.cyan{color:var(--cyan)}
 .right-risk .row b.green{color:var(--green)}
 
+/* =========================================================
+   MANEUVER OPTIMIZER
+   Contains ΔV selection, preset maneuvers, reset, and simulation.
+   ========================================================= */
 .maneuver-card{
   border:1px solid var(--line);padding:14px;background:rgba(5,14,22,.66);margin-top:9px;
 }
@@ -264,6 +360,10 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
 .execute:hover{background:rgba(98,221,255,.16);box-shadow:0 0 24px rgba(98,221,255,.12)}
 .execute:disabled{opacity:.45}
 
+/* =========================================================
+   CAMERA / VIEW CONTROLS
+   Global, asset, threat, and pause controls live here.
+   ========================================================= */
 .bottom-bar{
   position:absolute;left:22px;right:22px;bottom:18px;height:39px;
   border:1px solid var(--line);background:rgba(2,8,14,.72);backdrop-filter:blur(15px);
@@ -278,6 +378,10 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
 }
 .view-btn.active,.view-btn:hover{border-color:var(--line2);color:var(--cyan2)}
 
+/* =========================================================
+   CENTER RETICLE
+   Visual targeting element positioned over the orbital scene.
+   ========================================================= */
 .center-ui{
   position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
   width:min(500px,36vw);min-width:340px;pointer-events:none;text-align:center
@@ -295,6 +399,10 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
 }
 .center-label b{display:block;margin-top:5px;color:var(--cyan);font-size:10px}
 
+/* =========================================================
+   TEMPORARY THREAT POPUP
+   Appears after a threat is selected and displays key metrics.
+   ========================================================= */
 .threat-popup{
   position:absolute;z-index:55;min-width:220px;padding:13px;
   border:1px solid rgba(255,82,106,.45);background:rgba(3,9,15,.91);
@@ -307,6 +415,10 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
 .threat-popup .tp-data{display:grid;grid-template-columns:1fr 1fr;gap:7px;font:8px var(--mono)}
 .threat-popup .tp-data span{color:#5e7785}.threat-popup .tp-data b{display:block;color:#e7f9ff;margin-top:3px}
 
+/* =========================================================
+   SCREEN TRANSITION + TOAST FEEDBACK
+   Used for launch transitions and short-lived system messages.
+   ========================================================= */
 .launch-fade{
   position:fixed;inset:0;z-index:100;background:rgba(0,8,14,.72);opacity:0;pointer-events:none;
   transition:.5s
@@ -321,6 +433,11 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
 }
 .toast.show{opacity:1;transform:translate(-50%,0)}
 
+/* =========================================================
+   RESPONSIVE LAYOUT
+   Reduce panel widths and hide secondary telemetry on smaller
+   screens.
+   ========================================================= */
 @media(max-width:950px){
   .left-panel,.right-panel{width:250px}
   .center-ui{width:300px}
@@ -341,7 +458,11 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
   .launch p{font-size:11px}
 }
 
-/* === EXTENDED ORBITAL INTERACTION === */
+/* =========================================================
+   EXTENDED ORBITAL INTERACTION STYLES
+   Additional controls for panel hiding, home navigation,
+   alerts, orbit legends, and interaction hints.
+   ========================================================= */
 .home-info{position:fixed;z-index:44;left:50%;top:calc(50% + 250px);transform:translateX(-50%);width:min(920px,86vw);display:grid;grid-template-columns:1fr 1fr;gap:12px;transition:opacity .55s,transform .65s,visibility .55s}.home-info.hidden{opacity:0;visibility:hidden;transform:translate(-50%,12px);pointer-events:none}.info-card{border:1px solid var(--line);background:rgba(3,10,17,.72);backdrop-filter:blur(14px);padding:14px 16px;text-align:left}.info-card h3{margin:0 0 9px;color:var(--cyan);font:700 9px var(--mono);letter-spacing:.18em}.info-card ul{margin:0;padding-left:16px;color:#91aab7;font:8px/1.8 var(--mono)}.info-card li::marker{color:var(--cyan)}
 .panel-toggle,.home-control{position:absolute;z-index:70;top:92px;padding:9px 12px;border:1px solid var(--line);background:rgba(3,10,17,.78);backdrop-filter:blur(12px);color:#9bc1cf;font:700 8px var(--mono);letter-spacing:.1em;transition:.25s}.panel-toggle{left:50%;transform:translateX(-50%)}.home-control{right:326px}.panel-toggle:hover,.home-control:hover{border-color:var(--cyan);color:var(--cyan2);box-shadow:0 0 20px rgba(98,221,255,.12)}
 .command.panels-hidden .left-panel,.command.panels-hidden .right-panel{opacity:0;visibility:hidden;pointer-events:none;transition:.35s}.command.panels-hidden .left-panel{transform:translateX(-18px)}.command.panels-hidden .right-panel{transform:translateX(18px)}
@@ -353,6 +474,11 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
 </head>
 
 <body>
+<!-- =========================================================
+     APPLICATION SHELL
+     The canvas is rendered first so all HUD elements can sit
+     above the orbital visualization.
+     ========================================================= -->
 <canvas id="space"></canvas>
 <div class="noise"></div><div class="vignette"></div><div class="scanlines"></div>
 <div class="cursor"></div><div class="cursor-ring"></div>
@@ -554,9 +680,16 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
   </div>
 </section>
 
+<!-- Three.js powers the entire interactive 3D orbital scene. -->
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 <script>
 (() => {
+  // =========================================================
+  // THREE.JS INITIALIZATION
+  // Creates the renderer, scene, camera, and root transform.
+  // Almost every 3D object is attached to `root`, which lets
+  // the free camera rotate the whole orbital environment.
+  // =========================================================
   const canvas = document.getElementById('space');
   const renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:false});
   renderer.setPixelRatio(Math.min(devicePixelRatio,2));
@@ -574,7 +707,11 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
   const root = new THREE.Group();
   scene.add(root);
 
-  // Stars
+  // =========================================================
+  // STARFIELD
+  // Generates thousands of points around the Earth to create
+  // the deep-space background.
+  // =========================================================
   const starCount = 5200;
   const starPositions = new Float32Array(starCount*3);
   for(let i=0;i<starCount;i++){
@@ -593,7 +730,11 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
   const stars = new THREE.Points(starGeo,starMat);
   scene.add(stars);
 
-  // Earth group
+  // =========================================================
+  // EARTH + TEXTURES
+  // Loads the Earth surface, normal, specular, and cloud maps
+  // used by the central planetary model.
+  // =========================================================
   const earthGroup = new THREE.Group();
   root.add(earthGroup);
   earthGroup.position.set(0,0,-.6);
@@ -634,7 +775,10 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
   );
   earthGroup.add(clouds);
 
-  // Atmosphere shell
+  // =========================================================
+  // ATMOSPHERE + LIGHTING
+  // Adds the blue atmospheric shell and the main scene lights.
+  // =========================================================
   const atmosphere = new THREE.Mesh(
     new THREE.SphereGeometry(2.67,64,64),
     new THREE.MeshBasicMaterial({
@@ -648,7 +792,10 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
   scene.add(sun);
   scene.add(new THREE.AmbientLight(0x153449,1.15));
 
-  // Orbital rings
+  // =========================================================
+  // ORBITAL REFERENCE RINGS
+  // Decorative reference planes representing orbital bands.
+  // =========================================================
   const orbitGroup = new THREE.Group();
   root.add(orbitGroup);
   const orbitMaterials = [
@@ -664,7 +811,11 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
     orbitGroup.add(ring);
   });
 
-  // Satellite model — intentionally stylized but clearly readable
+  // =========================================================
+  // NX-77 SATELLITE MODEL
+  // A lightweight stylized model keeps rendering fast while
+  // remaining recognizable as the protected spacecraft.
+  // =========================================================
   const satGroup = new THREE.Group();
   root.add(satGroup);
   const satBody = new THREE.Mesh(
@@ -687,7 +838,11 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
   [['debris-48291',3.72,.24,0xff526a,.75],['debris-39108',4.18,-.45,0xffbd5b,.52],['debris-77120',4.55,.72,0x55efa0,.38]].forEach(([id,r,y,color,opacity])=>{const pts=[];for(let i=0;i<=140;i++){const a=i/140*Math.PI*2;pts.push(new THREE.Vector3(Math.cos(a)*r,y+.12*Math.sin(a*2.1),Math.sin(a)*r));}const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color,transparent:true,opacity}));root.add(line);debrisTrajectories[id]=line;});
 
 
-  // Threat objects
+  // =========================================================
+  // THREAT DATA + 3D THREAT MARKERS
+  // `threatData` is the single source for displayed risk,
+  // miss distance, relative velocity, severity, and color.
+  // =========================================================
   const threatData = {
     'debris-48291':{name:'DEBRIS-48291',risk:2.70,miss:.84,rel:3.20,level:'HIGH',color:0xff526a},
     'debris-39108':{name:'DEBRIS-39108',risk:.64,miss:4.18,rel:1.91,level:'MED',color:0xffbd5b},
@@ -714,7 +869,11 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
     root.add(g);
   });
 
-  // Debris field: hundreds of tiny physical objects
+  // =========================================================
+  // BACKGROUND DEBRIS FIELD
+  // Creates hundreds of small orbital particles to make the
+  // environment feel populated without individual UI entries.
+  // =========================================================
   const debrisCount = 480;
   const debrisPos = new Float32Array(debrisCount*3);
   const debrisColors = new Float32Array(debrisCount*3);
@@ -737,7 +896,10 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
   const debrisField = new THREE.Points(debrisGeo,debrisMat);
   root.add(debrisField);
 
-  // Conjunction path
+  // =========================================================
+  // CONJUNCTION PATH
+  // Highlights the simulated high-risk orbital crossing.
+  // =========================================================
   const pathMat = new THREE.LineBasicMaterial({color:0xff536a,transparent:true,opacity:.28});
   const pathPts=[];
   for(let i=0;i<=80;i++){
@@ -753,7 +915,11 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
   );
   root.add(path);
 
-  // Mouse parallax
+  // =========================================================
+  // POINTER + CUSTOM CURSOR INTERACTION
+  // Mouse position drives both HUD cursor feedback and a subtle
+  // parallax effect on the orbital scene.
+  // =========================================================
   let mouseX=0,mouseY=0,targetX=0,targetY=0;
   window.addEventListener('mousemove',e=>{
     targetX=(e.clientX/innerWidth-.5);
@@ -779,6 +945,11 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
   let userRotX=0,userRotY=0,targetRotX=0,targetRotY=0,targetZoom=9.5;
   let spectateActive=false, spectateTarget=null, satelliteSpectate=false;
 
+  // =========================================================
+  // DEBRIS SPECTATE MODE
+  // Locks the camera onto the selected debris object and follows
+  // its moving orbital trajectory.
+  // =========================================================
   function enterSpectate(id){
     spectateActive=true;
     satelliteSpectate=false;
@@ -794,6 +965,10 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
     );
   }
 
+  // =========================================================
+  // SATELLITE SPECTATE MODE
+  // Locks the camera onto NX-77 and follows its orbit.
+  // =========================================================
   function enterSatelliteSpectate(){
     satelliteSpectate=true;
     spectateActive=false;
@@ -809,6 +984,10 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
     );
   }
 
+  // =========================================================
+  // EXIT SPECTATE MODE
+  // Restores the normal Earth-centered free camera.
+  // =========================================================
   function exitSpectate(){
     spectateActive=false;
     satelliteSpectate=false;
@@ -818,6 +997,11 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
     showToast('SPECTATE MODE EXITED / FREECAM RESTORED');
   }
 
+  // =========================================================
+  // FREECAM INPUT
+  // Drag = rotate, wheel = zoom, double-click = reset.
+  // Scrolling outward while spectating exits spectate mode.
+  // =========================================================
   canvas.style.cursor='grab';
   canvas.addEventListener('pointerdown',e=>{if(!command.classList.contains('active'))return;dragging=true;canvas.setPointerCapture(e.pointerId);lastPointerX=e.clientX;lastPointerY=e.clientY;canvas.style.cursor='grabbing';});
   canvas.addEventListener('pointermove',e=>{if(!dragging||!command.classList.contains('active'))return;const dx=e.clientX-lastPointerX,dy=e.clientY-lastPointerY;targetRotY+=dx*.006;targetRotX+=dy*.006;targetRotX=Math.max(-1.45,Math.min(1.45,targetRotX));lastPointerX=e.clientX;lastPointerY=e.clientY;});
@@ -843,6 +1027,12 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
   function resetFreeView(){targetRotX=0;targetRotY=0;targetZoom=9.5;cameraMode='global';}
 
 
+  // =========================================================
+  // THREAT ORBIT ANIMATION
+  // Updates each tracked debris object's position over time.
+  // When a maneuver is considered safe, the primary threat is
+  // shifted away from the simulated conjunction.
+  // =========================================================
   function placeThreats(t){
     const configs = [
       ['debris-48291',3.72,.24,1.0],
@@ -865,6 +1055,11 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
     }
   }
 
+  // =========================================================
+  // MAIN RENDER LOOP
+  // Updates animation, camera behavior, spectate tracking,
+  // parallax, and finally renders the Three.js scene.
+  // =========================================================
   function render(t){
     requestAnimationFrame(render);
     if(!paused){
@@ -908,13 +1103,19 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
   }
   requestAnimationFrame(render);
 
+  // Keep the renderer and camera projection synchronized with
+  // viewport size changes.
   window.addEventListener('resize',()=>{
     renderer.setSize(innerWidth,innerHeight);
     camera.aspect=innerWidth/innerHeight;
     camera.updateProjectionMatrix();
   });
 
-  // Boot
+  // =========================================================
+  // BOOT SEQUENCE
+  // Simulates sensor initialization before the command center
+  // becomes visible.
+  // =========================================================
   const boot=document.getElementById('boot');
   const bootBar=document.getElementById('bootBar');
   const bootPct=document.getElementById('bootPct');
@@ -939,7 +1140,11 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
     }
   },330);
 
-  // Launch
+  // =========================================================
+  // LANDING -> COMMAND CENTER TRANSITION
+  // Handles the launch fade, first alert, panel visibility,
+  // and return-home behavior.
+  // =========================================================
   const launch=document.getElementById('launch');
   const command=document.getElementById('command');
   const panelToggle=document.getElementById('panelToggle');
@@ -962,7 +1167,10 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
     },500);
   });
 
-  // Tabs
+  // =========================================================
+  // MISSION CONSOLE TABS
+  // Switches the visible module in the left control panel.
+  // =========================================================
   document.querySelectorAll('.tab').forEach(tab=>{
     tab.addEventListener('click',()=>{
       document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
@@ -972,7 +1180,11 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
     });
   });
 
-  // Threat nodes
+  // =========================================================
+  // THREAT SELECTION
+  // Updates the right-side risk analysis and starts spectating
+  // the selected debris object.
+  // =========================================================
   const popup=document.getElementById('threatPopup');
   function selectThreat(id){
     selectedId=id;
@@ -999,7 +1211,12 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
   }
   document.querySelectorAll('.node').forEach(n=>n.addEventListener('click',()=>selectThreat(n.dataset.node)));
 
-  // Click 3D threat markers with raycasting
+  // =========================================================
+  // 3D OBJECT PICKING / RAYCASTING
+  // Converts a screen click into a 3D hit. Clicking NX-77
+  // starts satellite spectate; clicking debris starts threat
+  // spectate.
+  // =========================================================
   const raycaster=new THREE.Raycaster();
   const pointer=new THREE.Vector2();
   window.addEventListener('click',e=>{
@@ -1029,7 +1246,11 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
     }
   });
 
-  // Maneuver controls
+  // =========================================================
+  // MANEUVER SIMULATION
+  // Presets provide different simulated ΔV values and projected
+  // safety outcomes. The execute button animates the risk change.
+  // =========================================================
   const maneuverData={
     A:{dv:.42,risk:.02,miss:4.62,name:'MANEUVER A'},
     B:{dv:.71,risk:.01,miss:6.18,name:'MANEUVER B'},
@@ -1100,7 +1321,11 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
     showToast('SCENARIO RESET');
   });
 
-  // Camera views
+  // =========================================================
+  // CAMERA VIEW PRESETS
+  // Global, asset, and threat views alter the free-camera target
+  // distance while preserving the existing scene controls.
+  // =========================================================
   document.querySelectorAll('[data-view]').forEach(btn=>{
     btn.addEventListener('click',()=>{
       document.querySelectorAll('.view-btn').forEach(x=>x.classList.remove('active'));
@@ -1116,6 +1341,8 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
     showToast(paused?'SIMULATION PAUSED':'SIMULATION RESUMED');
   });
 
+  // Smoothly interpolates a numeric HUD value for cinematic
+  // feedback during maneuver execution.
   function animateNumber(id,from,to,duration,format){
     const el=document.getElementById(id);
     const start=performance.now();
@@ -1128,6 +1355,8 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
     requestAnimationFrame(step);
   }
 
+  // Displays a short non-blocking status message at the bottom
+  // of the HUD.
   function showToast(text){
     const t=document.getElementById('toast');
     t.textContent=text;t.classList.add('show');
@@ -1135,7 +1364,10 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
     window.toastTimer=setTimeout(()=>t.classList.remove('show'),2200);
   }
 
-  // Telemetry clocks
+  // =========================================================
+  // LIVE TELEMETRY READOUTS
+  // Updates UTC time and simulated system uptime once per second.
+  // =========================================================
   setInterval(()=>{
     const now=new Date();
     document.getElementById('utc').textContent=now.toISOString().slice(11,19);
@@ -1146,7 +1378,11 @@ input[type=range]{width:100%;margin-top:8px;accent-color:var(--cyan)}
     document.getElementById('uptime').textContent=`${h}:${m}:${s}`;
   },1000);
 
-  // Small fake FPS readout for cinematic telemetry
+  // =========================================================
+  // FPS DISPLAY
+  // Calculates a lightweight client-side frame-rate estimate for
+  // the HUD. It is a visual telemetry readout, not server data.
+  // =========================================================
   let frames=0,last=performance.now();
   function fpsLoop(now){
     frames++;
