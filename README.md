@@ -7,7 +7,7 @@ A single-file, browser-based 3D mission control interface for monitoring a satel
 
 ## 🌐 Live Demo
 
-The whole project is one self-contained file: `index.html`. There is no build step and no server — download the file and open it in any modern browser (Chrome/Edge/Firefox with WebGL2 support). An internet connection is needed on first load, since Three.js, the Earth/cloud textures, and the fonts are pulled from public CDNs.
+The whole project is one self-contained file: `index.html`. Moreover the website is being currently hosted on this github repository itself which can be viewed at https://dheer1112.github.io/Nicotech-X/ . There is no build step and no server — download the file and open it in any modern browser (Chrome/Edge/Firefox with WebGL2 support). An internet connection is needed on first load, since Three.js, the Earth/cloud textures, and the fonts are pulled from public CDNs.
 
 ## 🚀 What is NX-77?
 
